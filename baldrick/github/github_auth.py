@@ -1,6 +1,8 @@
-import dateutil.parser
+import netrc
 import datetime
 from collections import defaultdict
+
+import dateutil.parser
 
 import jwt
 
@@ -51,9 +53,17 @@ def get_json_web_token():
     return json_web_token
 
 
-# TODO: update this to support multiple installation tokens
 installation_token = defaultdict(lambda: None)
 installation_token_expiry = defaultdict(lambda: None)
+
+
+def netrc_exists():
+    try:
+        my_netrc = netrc.netrc()
+    except FileNotFoundError:
+        return False
+    else:
+        return my_netrc.authenticators('api.github.com') is not None
 
 
 def get_installation_token(installation):
@@ -67,6 +77,10 @@ def get_installation_token(installation):
 
         # FIXME: if .netrc file is present, Authorization header will get
         # overwritten, so need to figure out how to ignore that file.
+        if netrc_exists():
+            raise Exception("Authentication does not work properly if a ~/.netrc "
+                            "file exists. Rename that file temporarily and try again.")
+
         headers = {}
         headers['Authorization'] = 'Bearer {0}'.format(get_json_web_token())
         headers['Accept'] = 'application/vnd.github.machine-man-preview+json'
@@ -74,8 +88,13 @@ def get_installation_token(installation):
         url = 'https://api.github.com/installations/{0}/access_tokens'.format(installation)
 
         req = requests.post(url, headers=headers)
-
         resp = req.json()
+
+        if not req.ok:
+            if 'message' in resp:
+                raise Exception(resp['message'])
+            else:
+                raise Exception("An error occurred when requesting token")
 
         installation_token[installation] = resp['token']
         installation_token_expiry[installation] = dateutil.parser.parse(resp['expires_at']).timestamp()
