@@ -63,7 +63,7 @@ def paged_github_json_request(url, headers=None):
 
 class RepoHandler(object):
 
-    def __init__(self, repo, branch, installation):
+    def __init__(self, repo, branch='master', installation=None):
         self.repo = repo
         self.branch = branch
         self.installation = installation
@@ -74,7 +74,10 @@ class RepoHandler(object):
 
     @property
     def _headers(self):
-        return github_request_headers(self.installation)
+        if self.installation is None:
+            return None
+        else:
+            return github_request_headers(self.installation)
 
     @property
     def _url_contents(self):
@@ -119,7 +122,7 @@ class RepoHandler(object):
 
 class IssueHandler(object):
 
-    def __init__(self, repo, number, installation):
+    def __init__(self, repo, number, installation=None):
         self.repo = repo
         self.number = number
         self.installation = installation
@@ -334,7 +337,6 @@ class PullRequestHandler(IssueHandler):
         headers = {'Accept': 'application/vnd.github.mockingbird-preview'}
         events = paged_github_json_request(self._url_timeline, headers=headers)
         date = None
-        print(events)
         for event in events:
             if event['event'] == 'committed':
                 date = event['committer']['date']

@@ -23,7 +23,7 @@ def get_json_web_token():
     global json_web_token
     global json_web_token_expiry
 
-    from .webapp import app
+    from changebot.webapp import app
 
     now = datetime.datetime.now()
 
