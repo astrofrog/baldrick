@@ -6,7 +6,7 @@ from copy import deepcopy
 
 import dateutil.parser
 
-from changebot.github_auth import github_request_headers
+from changebot.github.github_auth import github_request_headers
 
 __all__ = ['RepoHandler', 'PullRequestHandler']
 

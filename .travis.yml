@@ -1,0 +1,23 @@
+language: c
+
+sudo: false
+
+os:
+    - linux
+
+env:
+  global:
+    - CONDA_DEPENDENCIES="pytest pytest-cov coverage requests flask cryptography python-dateutil"
+    - PIP_DEPENDENCIES="coveralls flask-dance pygithub humanize"
+  matrix:
+    - PYTHON_VERSION=3.6
+
+install:
+    - git clone git://github.com/astropy/ci-helpers.git
+    - source ci-helpers/travis/setup_conda.sh
+
+script:
+    - pytest --cov changebot changebot
+
+after_success:
+   - coveralls
