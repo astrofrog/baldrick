@@ -33,6 +33,7 @@ IJVMoU0lvK0zKm5VlXh3jbRXt/M5cTNu/1+xZxUbGJ0b+Go3FYc=
 -----END RSA PRIVATE KEY-----
 """.strip()
 
+
 @patch.object(app, 'private_key', PRIVATE_KEY)
 @patch.object(app, 'integration_id', 'dummy id')
 def test_get_json_web_token():
