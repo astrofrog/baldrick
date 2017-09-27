@@ -88,9 +88,8 @@ class RepoHandler(object):
         return f'{HOST}/repos/{self.repo}/pulls'
 
     def open_pull_requests(self):
-        response = requests.get(self._url_pull_requests, headers=self._headers)
-        assert response.ok, response.content
-        return [pr['number'] for pr in response.json()]
+        pull_requests = paged_github_json_request(self._url_pull_requests, headers=self._headers)
+        return [pr['number'] for pr in pull_requests]
 
     def get_file_contents(self, path_to_file):
         url_file = self._url_contents + path_to_file
