@@ -257,6 +257,10 @@ class PullRequestHandler(IssueHandler):
         return f'{HOST}/repos/{self.repo}/statuses/{self.head_sha}'
 
     @property
+    def _url_commits(self):
+        return f'{HOST}/repos/{self.repo}/pulls/{self.number}/commits'
+
+    @property
     def json(self):
         if 'json' not in self._cache:
             response = requests.get(self._url_pull_request, headers=self._headers)
@@ -334,12 +338,12 @@ class PullRequestHandler(IssueHandler):
 
     @property
     def last_commit_date(self):
-        headers = {'Accept': 'application/vnd.github.mockingbird-preview'}
-        events = paged_github_json_request(self._url_timeline, headers=headers)
-        date = None
-        for event in events:
-            if event['event'] == 'committed':
-                date = event['committer']['date']
-        if date is None:
+        commits = paged_github_json_request(self._url_commits, headers=self._headers)
+        last_time = 0
+        for commit in commits:
+            date = commit['commit']['committer']['date']
+            time = dateutil.parser.parse(date).timestamp()
+            last_time = max(time, last_time)
+        if last_time == 0:
             raise Exception(f'No commit found in {url}')
-        return dateutil.parser.parse(date).timestamp()
+        return last_time
