@@ -209,19 +209,7 @@ class IssueHandler(object):
         """
 
         data = {}
-        data['body'] = body
-
-        # Troll mode on special day for new pull request
-        tt = time.gmtime()  # UTC because we're astronomers!
-        if tt.tm_mon == 4 and tt.tm_mday == 1:
-            import random
-
-            try:
-                q = random.choice(QUOTES)
-            except Exception as e:
-                q = str(e)  # Need a way to find out what went wrong
-
-            data['body'] += f'\n*{q}*\n'
+        data['body'] = _insert_special_message(body)
 
         if comment_id is None:
             url = self._url_issue_comment
@@ -359,3 +347,19 @@ class PullRequestHandler(IssueHandler):
         if last_time == 0:
             raise Exception(f'No commit found in {url}')
         return last_time
+
+
+def _insert_special_message(body):
+    """Troll mode on special day for new pull request."""
+    tt = time.gmtime()  # UTC because we're astronomers!
+    if tt.tm_mon != 4 or tt.tm_mday != 1:
+        return body
+
+    import random
+
+    try:
+        q = random.choice(QUOTES)
+    except Exception as e:
+        q = str(e)  # Need a way to find out what went wrong
+
+    return body + f'\n*{q}*\n'
