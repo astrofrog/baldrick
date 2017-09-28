@@ -99,7 +99,7 @@ class RepoHandler(object):
         contents_base64 = response.json()['content']
         return base64.b64decode(contents_base64).decode()
 
-    def get_issues(self, state, labels):
+    def get_issues(self, state, labels, exclude_pr=True):
         """
         Get a list of issues.
 
@@ -111,12 +111,25 @@ class RepoHandler(object):
         labels : str
            List of comma-separated labels; e.g., ``Closed?``.
 
+        exclude_pr : bool
+            Exclude pull requests from result.
+
+        Returns
+        -------
+        issue_list : list
+            A list of matching issue numbers.
+
         """
         url = f'{HOST}/repos/{self.repo}/issues'
         kwargs = {'state': state, 'labels': labels}
         r = requests.get(url, kwargs)
         result = r.json()
-        return [d['number'] for d in result]
+        if exclude_pr:
+            issue_list = [d['number'] for d in result
+                          if 'pull_request' not in d]
+        else:
+            issue_list = [d['number'] for d in result]
+        return issue_list
 
 
 class IssueHandler(object):
