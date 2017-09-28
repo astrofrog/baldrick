@@ -7,7 +7,7 @@ os:
 
 env:
   global:
-    - CONDA_DEPENDENCIES="pytest pytest-cov coverage requests flask cryptography python-dateutil"
+    - CONDA_DEPENDENCIES="pytest pytest-cov coverage requests flask cryptography python-dateutil yaml pyyaml"
     - PIP_DEPENDENCIES="coveralls flask-dance pygithub humanize"
   matrix:
     - PYTHON_VERSION=3.6

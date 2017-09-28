@@ -1,10 +1,12 @@
-import re
+"""Module to handle GitHub API."""
 import base64
+import re
 import requests
 import time
-from copy import deepcopy
+import warnings
 
 import dateutil.parser
+import yaml
 
 from changebot.github.github_auth import github_request_headers
 
@@ -32,6 +34,8 @@ QUOTES = [
     "I don't want to be human! I want to see gamma rays!",
     "Are you my mommy?",
     "Resistance is futile."]
+
+cfg_cache = {}
 
 
 def paged_github_json_request(url, headers=None):
@@ -64,10 +68,17 @@ def paged_github_json_request(url, headers=None):
 class RepoHandler(object):
 
     def __init__(self, repo, branch='master', installation=None):
+        global cfg_cache
+
         self.repo = repo
         self.branch = branch
         self.installation = installation
         self._cache = {}
+
+        # User config
+        cfg_cache_key = (repo, branch, installation)
+        if cfg_cache_key not in cfg_cache:
+            cfg_cache[cfg_cache_key] = self.get_user_config()
 
     def invalidate_cache(self):
         self._cache.clear()
@@ -98,6 +109,41 @@ class RepoHandler(object):
         assert response.ok, response.content
         contents_base64 = response.json()['content']
         return base64.b64decode(contents_base64).decode()
+
+    def get_user_config(self, path_to_file='astropybotrules.yaml'):
+        """
+        Load user configuration for bot.
+
+        Parameters
+        ----------
+        path_to_file : str
+            Configuration file in YAML format in the repository.
+            If not given or invalid, default is used.
+
+        Returns
+        -------
+        cfg : dict
+            Configuration parameters.
+
+        """
+        try:
+            file_content = self.get_file_contents(path_to_file)
+            cfg = yaml.load(file_content)
+        except Exception as e:
+            warnings.warn(str(e))
+            # Empty dict means calling code set the default
+            cfg = {}
+
+        return cfg
+
+    def get_config_from_cache(self, cfg_key, cfg_default):
+        """
+        Convenience method to extract user config from global cache.
+        """
+        cfg_cache_key = (self.repo, self.branch, self.installation)
+        # NOTE: Is there a chance that cache is reset at this point?
+        cfg = cfg_cache.get(cfg_cache_key, {})
+        return cfg.get(cfg_key, cfg_default)
 
     def get_issues(self, state, labels, exclude_pr=True):
         """
