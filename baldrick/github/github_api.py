@@ -151,16 +151,28 @@ class IssueHandler(object):
         self._cache.clear()
 
     @property
+    def _url_issue(self):
+        return f'{HOST}/repos/{self.repo}/issues/{self.number}'
+
+    @property
     def _url_labels(self):
-        return f'{HOST}/repos/{self.repo}/issues/{self.number}/labels'
+        return f'{self._url_issue}/labels'
 
     @property
     def _url_issue_comment(self):
-        return f'{HOST}/repos/{self.repo}/issues/{self.number}/comments'
+        return f'{self._url_issue}/comments'
 
     @property
     def _url_timeline(self):
-        return f'{HOST}/repos/{self.repo}/issues/{self.number}/timeline'
+        return f'{self._url_issue}/timeline'
+
+    @property
+    def json(self):
+        if 'json' not in self._cache:
+            response = requests.get(self._url_issue, headers=self._headers)
+            assert response.ok, response.content
+            self._cache['json'] = response.json()
+        return self._cache['json']
 
     def get_label_added_date(self, label):
         """
@@ -241,6 +253,14 @@ class IssueHandler(object):
         response = requests.patch(url, json=parameters, headers=self._headers)
         assert response.ok, response.content
 
+    @property
+    def is_closed(self):
+        """Is the issue closed?"""
+        answer = False
+        if self.json['state'] == 'closed':
+            answer = True
+        return answer
+
 
 class PullRequestHandler(IssueHandler):
 
@@ -258,7 +278,7 @@ class PullRequestHandler(IssueHandler):
 
     @property
     def _url_commits(self):
-        return f'{HOST}/repos/{self.repo}/pulls/{self.number}/commits'
+        return f'{self._url_pull_request}/commits'
 
     @property
     def json(self):
