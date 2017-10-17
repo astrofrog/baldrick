@@ -68,17 +68,10 @@ def paged_github_json_request(url, headers=None):
 class RepoHandler(object):
 
     def __init__(self, repo, branch='master', installation=None):
-        global cfg_cache
-
         self.repo = repo
         self.branch = branch
         self.installation = installation
         self._cache = {}
-
-        # User config
-        cfg_cache_key = (repo, branch, installation)
-        if cfg_cache_key not in cfg_cache:
-            cfg_cache[cfg_cache_key] = self.get_user_config()
 
     def invalidate_cache(self):
         self._cache.clear()
@@ -110,7 +103,7 @@ class RepoHandler(object):
         contents_base64 = response.json()['content']
         return base64.b64decode(contents_base64).decode()
 
-    def get_user_config(self, path_to_file='astropybotrules.yaml'):
+    def get_user_config(self, path_to_file='.astropybot.yml'):
         """
         Load user configuration for bot.
 
@@ -136,12 +129,16 @@ class RepoHandler(object):
 
         return cfg
 
-    def get_config_from_cache(self, cfg_key, cfg_default):
+    def get_config_value(self, cfg_key, cfg_default):
         """
         Convenience method to extract user config from global cache.
         """
+        global cfg_cache
+
         cfg_cache_key = (self.repo, self.branch, self.installation)
-        # NOTE: Is there a chance that cache is reset at this point?
+        if cfg_cache_key not in cfg_cache:
+            cfg_cache[cfg_cache_key] = self.get_user_config()
+
         cfg = cfg_cache.get(cfg_cache_key, {})
         return cfg.get(cfg_key, cfg_default)
 
