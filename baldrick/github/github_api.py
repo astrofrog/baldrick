@@ -103,7 +103,8 @@ class RepoHandler(object):
         contents_base64 = response.json()['content']
         return base64.b64decode(contents_base64).decode()
 
-    def get_user_config(self, path_to_file='.astropybot.yml'):
+    def get_user_config(self, path_to_file='.astropybot.yml',
+                        warn_on_failure=True):
         """
         Load user configuration for bot.
 
@@ -112,6 +113,9 @@ class RepoHandler(object):
         path_to_file : str
             Configuration file in YAML format in the repository.
             If not given or invalid, default is used.
+
+        warn_on_failure : bool
+            Emit warning on failure to load YAML file.
 
         Returns
         -------
@@ -123,7 +127,8 @@ class RepoHandler(object):
             file_content = self.get_file_contents(path_to_file)
             cfg = yaml.load(file_content)
         except Exception as e:
-            warnings.warn(str(e))
+            if warn_on_failure:
+                warnings.warn(str(e))
             # Empty dict means calling code set the default
             cfg = {}
 
@@ -251,7 +256,7 @@ class IssueHandler(object):
 
         return t
 
-    def submit_comment(self, body, comment_id=None):
+    def submit_comment(self, body, comment_id=None, return_url=False):
         """
         Submit a comment to the pull request
 
@@ -261,6 +266,13 @@ class IssueHandler(object):
             The comment
         comment_id : int
             If specified, the comment with this ID will be replaced
+        return_url : bool
+            Return URL of posted comment.
+
+        Returns
+        -------
+        url : str or `None`
+            URL of the posted comment, if requested.
         """
 
         data = {}
@@ -273,6 +285,9 @@ class IssueHandler(object):
 
         response = requests.post(url, json=data, headers=self._headers)
         assert response.ok, response.content
+
+        if return_url:
+            return response.json()['url']
 
     def find_comments(self, login, filter_keep=None):
         """
@@ -375,20 +390,24 @@ class PullRequestHandler(IssueHandler):
         response = requests.post(self._url_review_comment, json=data, headers=self._headers)
         assert response.ok, response.content
 
-    def set_status(self, state, description, context):
+    def set_status(self, state, description, context, target_url=None):
         """
         Set status message in a pull request on GitHub.
 
         Parameters
         ----------
-        pull_request_payload : dict
-            The payload sent from GitHub via the webhook interface.
         state : { 'pending' | 'success' | 'error' | 'failure' }
             The state to set for the pull request.
+
         description : str
             The message that appears in the status line.
+
         context : str
-             A string used to identify the status line.
+            A string used to identify the status line.
+
+        target_url : str or `None`
+            Link to bot comment that is relevant to this status, if given.
+
         """
 
         data = {}
@@ -396,7 +415,11 @@ class PullRequestHandler(IssueHandler):
         data['description'] = description
         data['context'] = context
 
-        response = requests.post(self._url_head_status, json=data, headers=self._headers)
+        if target_url is not None:
+            data['target_url'] = target_url
+
+        response = requests.post(self._url_head_status, json=data,
+                                 headers=self._headers)
         assert response.ok, response.content
 
     @property
@@ -408,7 +431,7 @@ class PullRequestHandler(IssueHandler):
             time = dateutil.parser.parse(date).timestamp()
             last_time = max(time, last_time)
         if last_time == 0:
-            raise Exception(f'No commit found in {url}')
+            raise Exception(f'No commit found in {self._url_commits}')
         return last_time
 
 

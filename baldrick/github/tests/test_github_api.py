@@ -1,3 +1,4 @@
+import warnings
 from unittest.mock import patch, Mock, PropertyMock
 
 import pytest
@@ -27,8 +28,39 @@ class TestRepoHandler:
         assert self.repo.get_issues('open', 'Close?',
                                     exclude_pr=False) == [42, 55]
 
+    def test_urls(self):
+        assert self.repo._url_contents == 'https://api.github.com/repos/fakerepo/doesnotexist/contents/'
+        assert self.repo._url_pull_requests == 'https://api.github.com/repos/fakerepo/doesnotexist/pulls'
+        assert self.repo._headers is None
 
-class IssueHandler:
+
+# NOTE: Might hit API limit?
+class TestRealRepoHandler:
+    def setup_class(self):
+        # TODO: Use astropy/astropy-bot when #42 is merged.
+        self.repo = RepoHandler('pllim/astropy-bot', branch='changelog-onoff')
+
+    def test_get_config(self):
+        # These are set to False in YAML; defaults must not be used.
+        with warnings.catch_warnings(record=True) as w:
+            do_changelog_check = self.repo.get_config_value(
+                'CHANGELOG_CHECK', True)
+            do_autoclose_pr = self.repo.get_config_value(
+                'AUTOCLOSE_STALE_PULL_REQUEST', True)
+
+        hit_api_limit = False
+        for iw in w:
+            if "API limit" in iw.message:
+                hit_api_limit = True
+                break
+
+        if hit_api_limit:
+            pytest.xfail('Exceeded API limit')
+        else:
+            assert not (do_changelog_check or do_autoclose_pr)
+
+
+class TestIssueHandler:
     def setup_class(self):
         self.issue = IssueHandler('fakerepo/doesnotexist', 1234)
 
@@ -41,12 +73,12 @@ class IssueHandler:
     @pytest.mark.parametrize(('state', 'answer'),
                              [('open', False), ('closed', True)])
     def test_is_closed(self, state, answer):
-        with patch('self.issue.json', new_callable=PropertyMock) as mock_json:
+        with patch('changebot.github.github_api.IssueHandler.json', new_callable=PropertyMock) as mock_json:  # noqa
             mock_json.return_value = {'state': state}
             assert self.issue.is_closed is answer
 
 
-class PullRequestHandler:
+class TestPullRequestHandler:
     def setup_class(self):
         self.pr = PullRequestHandler('fakerepo/doesnotexist', 1234)
 
