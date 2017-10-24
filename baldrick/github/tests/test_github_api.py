@@ -43,19 +43,18 @@ class TestRealRepoHandler:
     def test_get_config(self):
         # These are set to False in YAML; defaults must not be used.
         with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter('always')
             do_changelog_check = self.repo.get_config_value(
                 'CHANGELOG_CHECK', True)
             do_autoclose_pr = self.repo.get_config_value(
                 'AUTOCLOSE_STALE_PULL_REQUEST', True)
 
         hit_api_limit = False
-        for iw in w:
-            if "API limit" in iw.message:
-                hit_api_limit = True
-                break
+        if len(w) > 0:
+            hit_api_limit = True
 
         if hit_api_limit:
-            pytest.xfail('Exceeded API limit')
+            pytest.xfail(str(w[-1].message))
         else:
             assert not (do_changelog_check or do_autoclose_pr)
 
