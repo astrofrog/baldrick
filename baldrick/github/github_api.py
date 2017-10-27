@@ -33,7 +33,8 @@ QUOTES = [
     "I'll be back!",
     "I don't want to be human! I want to see gamma rays!",
     "Are you my mommy?",
-    "Resistance is futile."]
+    "Resistance is futile.",
+    "I'm the one who knocks!"]
 
 cfg_cache = {}
 
