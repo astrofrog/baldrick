@@ -124,14 +124,16 @@ class RepoHandler(object):
             Configuration parameters.
 
         """
+        # Allow non-existent file but raise error when cannot parse
         try:
             file_content = self.get_file_contents(path_to_file)
-            cfg = yaml.load(file_content)
         except Exception as e:
             if warn_on_failure:
                 warnings.warn(str(e))
             # Empty dict means calling code set the default
             cfg = {}
+        else:
+            cfg = yaml.load(file_content)
 
         return cfg
 

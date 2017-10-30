@@ -1,4 +1,4 @@
-language: python
+language: c
 
 sudo: false
 
@@ -6,8 +6,8 @@ os:
     - linux
 
 stages:
-    - name: Coverage
     - name: Style
+    - name: Coverage
 
 matrix:
 
