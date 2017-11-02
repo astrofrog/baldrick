@@ -13,6 +13,7 @@ from changebot.github.github_auth import github_request_headers
 __all__ = ['RepoHandler', 'PullRequestHandler']
 
 HOST = "https://api.github.com"
+HOST_NONAPI = "https://github.com"
 
 QUOTES = [
     "I know that you and Frank were planning to disconnect me, and I'm afraid that's something I cannot allow to happen.",
@@ -206,6 +207,10 @@ class IssueHandler(object):
         return f'{HOST}/repos/{self.repo}/issues/{self.number}'
 
     @property
+    def _url_issue_nonapi(self):
+        return f'{HOST_NONAPI}/{self.repo}/issues/{self.number}'
+
+    @property
     def _url_labels(self):
         return f'{self._url_issue}/labels'
 
@@ -290,7 +295,8 @@ class IssueHandler(object):
         assert response.ok, response.content
 
         if return_url:
-            return response.json()['url']
+            comment_id = response.json()['url'].split('/')[-1]
+            return f'{self._url_issue_nonapi}#issuecomment-{comment_id}'
 
     def find_comments(self, login, filter_keep=None):
         """
