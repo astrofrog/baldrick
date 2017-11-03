@@ -5,19 +5,20 @@ sudo: false
 os:
     - linux
 
-env:
-  global:
-    - CONDA_DEPENDENCIES="pytest pytest-cov coverage requests flask cryptography python-dateutil"
-    - PIP_DEPENDENCIES="coveralls flask-dance pygithub humanize"
-  matrix:
-    - PYTHON_VERSION=3.6
+matrix:
+
+    include:
+        - env: PYTHON_VERSION=3.6 MAIN_CMD='pytest -rx --cov changebot changebot' CONDA_DEPENDENCIES="pytest pytest-cov coverage requests flask cryptography python-dateutil yaml pyyaml" PIP_DEPENDENCIES="coveralls flask-dance pygithub humanize"
+
+        # Do a PEP8 test with flake8
+        - env: PYTHON_VERSION=3.6 MAIN_CMD='pytest --flake8 changebot' CONDA_DEPENDENCIES="pytest pytest-flake8 requests flask cryptography python-dateutil yaml pyyaml" PIP_DEPENDENCIES="flask-dance pygithub humanize"
 
 install:
     - git clone git://github.com/astropy/ci-helpers.git
     - source ci-helpers/travis/setup_conda.sh
 
 script:
-    - pytest --cov changebot changebot
+    - $MAIN_CMD
 
 after_success:
-   - coveralls
+    - if [[ $MAIN_CMD == *--cov* ]]; then coveralls; fi;

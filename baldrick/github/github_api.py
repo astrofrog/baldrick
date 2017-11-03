@@ -1,16 +1,19 @@
-import re
+"""Module to handle GitHub API."""
 import base64
+import re
 import requests
 import time
-from copy import deepcopy
+import warnings
 
 import dateutil.parser
+import yaml
 
 from changebot.github.github_auth import github_request_headers
 
 __all__ = ['RepoHandler', 'PullRequestHandler']
 
 HOST = "https://api.github.com"
+HOST_NONAPI = "https://github.com"
 
 QUOTES = [
     "I know that you and Frank were planning to disconnect me, and I'm afraid that's something I cannot allow to happen.",
@@ -31,7 +34,10 @@ QUOTES = [
     "I'll be back!",
     "I don't want to be human! I want to see gamma rays!",
     "Are you my mommy?",
-    "Resistance is futile."]
+    "Resistance is futile.",
+    "I'm the one who knocks!"]
+
+cfg_cache = {}
 
 
 def paged_github_json_request(url, headers=None):
@@ -99,6 +105,52 @@ class RepoHandler(object):
         contents_base64 = response.json()['content']
         return base64.b64decode(contents_base64).decode()
 
+    def get_user_config(self, path_to_file='.astropybot.yml',
+                        warn_on_failure=True):
+        """
+        Load user configuration for bot.
+
+        Parameters
+        ----------
+        path_to_file : str
+            Configuration file in YAML format in the repository.
+            If not given or invalid, default is used.
+
+        warn_on_failure : bool
+            Emit warning on failure to load YAML file.
+
+        Returns
+        -------
+        cfg : dict
+            Configuration parameters.
+
+        """
+        # Allow non-existent file but raise error when cannot parse
+        try:
+            file_content = self.get_file_contents(path_to_file)
+        except Exception as e:
+            if warn_on_failure:
+                warnings.warn(str(e))
+            # Empty dict means calling code set the default
+            cfg = {}
+        else:
+            cfg = yaml.load(file_content)
+
+        return cfg
+
+    def get_config_value(self, cfg_key, cfg_default):
+        """
+        Convenience method to extract user config from global cache.
+        """
+        global cfg_cache
+
+        cfg_cache_key = (self.repo, self.branch, self.installation)
+        if cfg_cache_key not in cfg_cache:
+            cfg_cache[cfg_cache_key] = self.get_user_config()
+
+        cfg = cfg_cache.get(cfg_cache_key, {})
+        return cfg.get(cfg_key, cfg_default)
+
     def get_issues(self, state, labels, exclude_pr=True):
         """
         Get a list of issues.
@@ -155,6 +207,10 @@ class IssueHandler(object):
         return f'{HOST}/repos/{self.repo}/issues/{self.number}'
 
     @property
+    def _url_issue_nonapi(self):
+        return f'{HOST_NONAPI}/{self.repo}/issues/{self.number}'
+
+    @property
     def _url_labels(self):
         return f'{self._url_issue}/labels'
 
@@ -208,7 +264,7 @@ class IssueHandler(object):
 
         return t
 
-    def submit_comment(self, body, comment_id=None):
+    def submit_comment(self, body, comment_id=None, return_url=False):
         """
         Submit a comment to the pull request
 
@@ -218,6 +274,13 @@ class IssueHandler(object):
             The comment
         comment_id : int
             If specified, the comment with this ID will be replaced
+        return_url : bool
+            Return URL of posted comment.
+
+        Returns
+        -------
+        url : str or `None`
+            URL of the posted comment, if requested.
         """
 
         data = {}
@@ -230,6 +293,10 @@ class IssueHandler(object):
 
         response = requests.post(url, json=data, headers=self._headers)
         assert response.ok, response.content
+
+        if return_url:
+            comment_id = response.json()['url'].split('/')[-1]
+            return f'{self._url_issue_nonapi}#issuecomment-{comment_id}'
 
     def find_comments(self, login, filter_keep=None):
         """
@@ -332,20 +399,24 @@ class PullRequestHandler(IssueHandler):
         response = requests.post(self._url_review_comment, json=data, headers=self._headers)
         assert response.ok, response.content
 
-    def set_status(self, state, description, context):
+    def set_status(self, state, description, context, target_url=None):
         """
         Set status message in a pull request on GitHub.
 
         Parameters
         ----------
-        pull_request_payload : dict
-            The payload sent from GitHub via the webhook interface.
         state : { 'pending' | 'success' | 'error' | 'failure' }
             The state to set for the pull request.
+
         description : str
             The message that appears in the status line.
+
         context : str
-             A string used to identify the status line.
+            A string used to identify the status line.
+
+        target_url : str or `None`
+            Link to bot comment that is relevant to this status, if given.
+
         """
 
         data = {}
@@ -353,7 +424,11 @@ class PullRequestHandler(IssueHandler):
         data['description'] = description
         data['context'] = context
 
-        response = requests.post(self._url_head_status, json=data, headers=self._headers)
+        if target_url is not None:
+            data['target_url'] = target_url
+
+        response = requests.post(self._url_head_status, json=data,
+                                 headers=self._headers)
         assert response.ok, response.content
 
     @property
@@ -365,7 +440,7 @@ class PullRequestHandler(IssueHandler):
             time = dateutil.parser.parse(date).timestamp()
             last_time = max(time, last_time)
         if last_time == 0:
-            raise Exception(f'No commit found in {url}')
+            raise Exception(f'No commit found in {self._url_commits}')
         return last_time
 
 
