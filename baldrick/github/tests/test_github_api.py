@@ -45,9 +45,9 @@ class TestRealRepoHandler:
         with warnings.catch_warnings(record=True) as w:
             warnings.simplefilter('always')
             do_changelog_check = self.repo.get_config_value(
-                'CHANGELOG_CHECK', True)
+                'changelog_check', True)
             do_autoclose_pr = self.repo.get_config_value(
-                'AUTOCLOSE_STALE_PULL_REQUEST', True)
+                'autoclose_stale_pull_request', True)
 
         hit_api_limit = False
         if len(w) > 0:
