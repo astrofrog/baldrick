@@ -1,4 +1,6 @@
+import base64
 import warnings
+
 from unittest.mock import patch, Mock, PropertyMock
 
 import pytest
@@ -57,6 +59,28 @@ class TestRealRepoHandler:
             pytest.xfail(str(w[-1].message))
         else:
             assert not (do_changelog_check or do_autoclose_pr)
+
+    @patch('requests.get')
+    def test_get_file_contents(self, mock_get):
+        content = b"I, for one, welcome our new robot overlords"
+
+        mock_response = Mock()
+        mock_response.ok = True
+        mock_response.json.return_value = {'content': base64.b64encode(content)}
+        mock_get.return_value = mock_response
+
+        result = self.repo.get_file_contents('some/file/here.txt')
+        assert result == content.decode('utf-8')
+
+    @patch('requests.get')
+    def test_missing_file_contents(self, mock_get):
+        mock_response = Mock()
+        mock_response.ok = False
+        mock_response.json.return_value = {'message': 'Not Found'}
+        mock_get.return_value = mock_response
+
+        with pytest.raises(FileNotFoundError):
+            self.repo.get_file_contents('some/file/here.txt')
 
 
 class TestIssueHandler:
