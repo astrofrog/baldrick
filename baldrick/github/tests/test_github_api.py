@@ -1,7 +1,7 @@
 import base64
 import warnings
 
-from unittest.mock import patch, Mock, PropertyMock
+from unittest.mock import patch, Mock, PropertyMock, MagicMock
 
 import pytest
 
@@ -110,6 +110,25 @@ class TestPullRequestHandler:
         assert self.pr._url_pull_request == 'https://api.github.com/repos/fakerepo/doesnotexist/pulls/1234'
         assert self.pr._url_review_comment == 'https://api.github.com/repos/fakerepo/doesnotexist/pulls/1234/reviews'
         assert self.pr._url_commits == 'https://api.github.com/repos/fakerepo/doesnotexist/pulls/1234/commits'
+        assert self.pr._url_files == 'https://api.github.com/repos/fakerepo/doesnotexist/pulls/1234/files'
+
+    def test_has_modified(self):
+        mock = MagicMock(return_value=[{
+            "sha": "bbcd538c8e72b8c175046e27cc8f907076331401",
+            "filename": "file1.txt",
+            "status": "added",
+            "additions": 103,
+            "deletions": 21,
+            "changes": 124,
+            "blob_url": "https://github.com/blah/blah/blob/hash/file1.txt",
+            "raw_url": "https://github.com/blaht/blah/raw/hash/file1.txt",
+            "contents_url": "https://api.github.com/repos/blah/blah/contents/file1.txt?ref=hash",
+            "patch": "@@ -132,7 +132,7 @@ module Test @@ -1000,7 +1000,7 @@ module Test"
+        }])
+        with patch('changebot.github.github_api.paged_github_json_request', mock):  # noqa
+            assert self.pr.has_modified(['file1.txt'])
+            assert self.pr.has_modified(['file1.txt', 'notthis.txt'])
+            assert not self.pr.has_modified(['notthis.txt'])
 
 
 @patch('time.gmtime')

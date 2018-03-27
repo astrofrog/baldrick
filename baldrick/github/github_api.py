@@ -351,6 +351,10 @@ class PullRequestHandler(IssueHandler):
         return f'{self._url_pull_request}/commits'
 
     @property
+    def _url_files(self):
+        return f'{self._url_pull_request}/files'
+
+    @property
     def json(self):
         if 'json' not in self._cache:
             response = requests.get(self._url_pull_request, headers=self._headers)
@@ -381,6 +385,18 @@ class PullRequestHandler(IssueHandler):
             return ''
         else:
             return milestone['title']
+
+    def has_modified(self, filelist):
+        """Check if PR has modified any of the given list of filename(s)."""
+        found = False
+        files = paged_github_json_request(self._url_files,
+                                          headers=self._headers)
+        for d in files:
+            if d['filename'] in filelist:
+                found = True
+                break
+
+        return found
 
     def submit_review(self, decision, body):
         """
