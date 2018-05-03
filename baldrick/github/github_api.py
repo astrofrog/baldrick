@@ -317,6 +317,34 @@ class IssueHandler(object):
         assert response.ok, response.content
         return [label['name'] for label in response.json()]
 
+    def get_all_labels(self):
+        """Get all label options for this repo"""
+        url = f'{HOST}/repos/{self.repo}/labels'
+        response = requests.post(url, headers=self._headers)
+        assert response.ok, response.content
+        return [label['name'] for label in response.json()]
+
+    def set_labels(self, labels):
+        """Set label(s) to issue"""
+
+        if not isinstance(labels, list):
+            labels = [labels]
+
+        # If label already set, do nothing
+        missing_labels = set(labels).difference(self.labels)
+        if len(missing_labels) == 0:
+            return
+
+        # If label does not already exist in the repo, fail (or create it?)
+        missing_labels = missing_labels.difference(self.get_all_labels())
+        if len(missing_labels) == 0:
+            print(f'-> WARNING: Label does not exist: {missing_labels}')
+            return
+
+        # Set label(s) for issue
+        response = requests.post(self._url_labels, headers=self._headers, json=list(missing_labels))
+        assert response.ok, response.content
+
     def close(self):
         url = f'{HOST}/repos/{self.repo}/issues/{self.number}'
         parameters = {'state': 'closed'}
