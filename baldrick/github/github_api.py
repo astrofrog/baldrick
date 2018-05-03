@@ -320,7 +320,7 @@ class IssueHandler(object):
     def get_all_labels(self):
         """Get all label options for this repo"""
         url = f'{HOST}/repos/{self.repo}/labels'
-        response = requests.post(url, headers=self._headers)
+        response = requests.get(url, headers=self._headers)
         assert response.ok, response.content
         return [label['name'] for label in response.json()]
 
