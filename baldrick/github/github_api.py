@@ -186,6 +186,13 @@ class RepoHandler(object):
             issue_list = [d['number'] for d in result]
         return issue_list
 
+    def get_all_labels(self):
+        """Get all label options for this repo"""
+        url = f'{HOST}/repos/{self.repo}/labels'
+        response = requests.get(url, headers=self._headers)
+        assert response.ok, response.content
+        return [label['name'] for label in response.json()]
+
 
 class IssueHandler(object):
 
@@ -313,14 +320,8 @@ class IssueHandler(object):
 
     @property
     def labels(self):
+        """Get labels for this issue"""
         response = requests.get(self._url_labels, headers=self._headers)
-        assert response.ok, response.content
-        return [label['name'] for label in response.json()]
-
-    def get_all_labels(self):
-        """Get all label options for this repo"""
-        url = f'{HOST}/repos/{self.repo}/labels'
-        response = requests.get(url, headers=self._headers)
         assert response.ok, response.content
         return [label['name'] for label in response.json()]
 
@@ -336,7 +337,7 @@ class IssueHandler(object):
             return
 
         # If label does not already exist in the repo, fail (or create it?)
-        missing_labels = missing_labels.difference(self.get_all_labels())
+        missing_labels = missing_labels.difference(self.repo.get_all_labels())
         if len(missing_labels) == 0:
             print(f'-> WARNING: Label does not exist: {missing_labels}')
             return
