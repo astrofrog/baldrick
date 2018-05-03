@@ -30,6 +30,16 @@ class TestRepoHandler:
         assert self.repo.get_issues('open', 'Close?',
                                     exclude_pr=False) == [42, 55]
 
+    @patch('requests.get')
+    def test_get_all_labels(self, mock_get):
+        mock_response = Mock()
+        mock_response.json.return_value = [
+            {'name': 'io.fits'},
+            {'name': 'Documentation'}]
+        mock_get.return_value = mock_response
+
+        assert self.repo.get_all_labels() == ['io.fits', 'Documentation']
+
     def test_urls(self):
         assert self.repo._url_contents == 'https://api.github.com/repos/fakerepo/doesnotexist/contents/'
         assert self.repo._url_pull_requests == 'https://api.github.com/repos/fakerepo/doesnotexist/pulls'
