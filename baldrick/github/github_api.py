@@ -186,6 +186,13 @@ class RepoHandler(object):
             issue_list = [d['number'] for d in result]
         return issue_list
 
+    def get_all_labels(self):
+        """Get all label options for this repo"""
+        url = f'{HOST}/repos/{self.repo}/labels'
+        response = requests.get(url, headers=self._headers)
+        assert response.ok, response.content
+        return [label['name'] for label in response.json()]
+
 
 class IssueHandler(object):
 
@@ -313,9 +320,47 @@ class IssueHandler(object):
 
     @property
     def labels(self):
+        """Get labels for this issue"""
         response = requests.get(self._url_labels, headers=self._headers)
         assert response.ok, response.content
         return [label['name'] for label in response.json()]
+
+    # We take this out of set_labels so we can test it without mock
+    def _get_missing_labels(self, labels):
+        if not isinstance(labels, list):
+            labels = [labels]
+
+        # If label already set, do nothing
+        missing_labels = set(labels).difference(self.labels)
+        if len(missing_labels) == 0:
+            return
+
+        # Need repo handler (master branch)
+        if 'repohandler' not in self._cache:
+            repo = RepoHandler(self.repo, installation=self.installation)
+            self._cache['repohandler'] = repo
+        else:
+            repo = self._cache['repohandler']
+
+        # If label does not already exist in the repo, fail (or create it?)
+        missing_labels = missing_labels.intersection(repo.get_all_labels())
+        if len(missing_labels) == 0:
+            print(f'-> WARNING: Label does not exist: {missing_labels}')
+            return
+
+        # Return labels to be set
+        return list(missing_labels)
+
+    def set_labels(self, labels):
+        """Set label(s) to issue"""
+
+        missing_labels = self._get_missing_labels(labels)
+        if missing_labels is None:
+            return
+
+        response = requests.post(self._url_labels, headers=self._headers,
+                                 json=missing_labels)
+        assert response.ok, response.content
 
     def close(self):
         url = f'{HOST}/repos/{self.repo}/issues/{self.number}'

@@ -30,6 +30,16 @@ class TestRepoHandler:
         assert self.repo.get_issues('open', 'Close?',
                                     exclude_pr=False) == [42, 55]
 
+    @patch('requests.get')
+    def test_get_all_labels(self, mock_get):
+        mock_response = Mock()
+        mock_response.json.return_value = [
+            {'name': 'io.fits'},
+            {'name': 'Documentation'}]
+        mock_get.return_value = mock_response
+
+        assert self.repo.get_all_labels() == ['io.fits', 'Documentation']
+
     def test_urls(self):
         assert self.repo._url_contents == 'https://api.github.com/repos/fakerepo/doesnotexist/contents/'
         assert self.repo._url_pull_requests == 'https://api.github.com/repos/fakerepo/doesnotexist/pulls'
@@ -100,6 +110,30 @@ class TestIssueHandler:
         with patch('changebot.github.github_api.IssueHandler.json', new_callable=PropertyMock) as mock_json:  # noqa
             mock_json.return_value = {'state': state}
             assert self.issue.is_closed is answer
+
+    def test_missing_labels(self):
+        with patch('changebot.github.github_api.IssueHandler.labels', new_callable=PropertyMock) as mock_issue_labels:  # noqa
+            mock_issue_labels.return_value = ['io.fits']
+            with patch('changebot.github.github_api.RepoHandler.get_all_labels') as mock_repo_labels:  # noqa
+                mock_repo_labels.return_value = ['io.fits', 'closed-by-bot']
+
+                # closed-by-bot label will be added to issue in POST
+                missing_labels = self.issue._get_missing_labels('closed-by-bot')
+                assert missing_labels == ['closed-by-bot']
+
+                # Desired labels do not exist in repo
+                missing_labels = self.issue._get_missing_labels(
+                    ['dummy', 'foo'])
+                assert missing_labels is None
+
+                # Desired label already set on issue
+                missing_labels = self.issue._get_missing_labels(['io.fits'])
+                assert missing_labels is None
+
+                # A mix
+                missing_labels = self.issue._get_missing_labels(
+                    ['io.fits', 'closed-by-bot', 'foo'])
+                assert missing_labels == ['closed-by-bot']
 
 
 class TestPullRequestHandler:
