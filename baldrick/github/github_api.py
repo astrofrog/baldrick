@@ -2,8 +2,8 @@
 import base64
 import re
 import requests
-import time
 import warnings
+from datetime import datetime, timedelta
 
 import dateutil.parser
 import yaml
@@ -501,8 +501,8 @@ class PullRequestHandler(IssueHandler):
         last_time = 0
         for commit in commits:
             date = commit['commit']['committer']['date']
-            time = dateutil.parser.parse(date).timestamp()
-            last_time = max(time, last_time)
+            t = dateutil.parser.parse(date).timestamp()
+            last_time = max(t, last_time)
         if last_time == 0:
             raise Exception(f'No commit found in {self._url_commits}')
         return last_time
@@ -510,15 +510,23 @@ class PullRequestHandler(IssueHandler):
 
 def _insert_special_message(body):
     """Troll mode on special day for new pull request."""
-    tt = time.gmtime()  # UTC because we're astronomers!
-    if tt.tm_mon != 4 or tt.tm_mday != 1:
+    tt = datetime.utcnow()  # UTC because we're astronomers!
+    dt = timedelta(hours=12)  # This roughly covers both hemispheres
+    tt_min = tt - dt
+    tt_max = tt + dt
+
+    # See if it is special day somewhere on Earth
+    if ((tt_min.month == 4 and tt_min.day == 1) or
+            (tt_max.month == 4 and tt_max.day == 1)):
+        import random
+
+        try:
+            q = random.choice(QUOTES)
+        except Exception as e:
+            q = str(e)  # Need a way to find out what went wrong
+
+        return body + f'\n*{q}*\n'
+
+    # Another non-special day
+    else:
         return body
-
-    import random
-
-    try:
-        q = random.choice(QUOTES)
-    except Exception as e:
-        q = str(e)  # Need a way to find out what went wrong
-
-    return body + f'\n*{q}*\n'

@@ -165,15 +165,24 @@ class TestPullRequestHandler:
             assert not self.pr.has_modified(['notthis.txt'])
 
 
-@patch('time.gmtime')
+@patch('changebot.github.github_api.datetime')
 def test_special_msg(mock_time):
+    import datetime
     import random
+
     random.seed(1234)
     body = 'Hello World\n'
 
-    mock_time.return_value = Mock(tm_mon=4, tm_mday=2)
+    # Not special
+    mock_time.utcnow.return_value = datetime.datetime(2018, 4, 3)
     assert github_api._insert_special_message(body) == body
 
-    mock_time.return_value = Mock(tm_mon=4, tm_mday=1)
+    # Special day on UTC
+    mock_time.utcnow.return_value = datetime.datetime(2018, 4, 1)
     body2 = github_api._insert_special_message(body)
     assert '\n*Greetings from Skynet!*\n' in body2
+
+    # Special day somewhere else
+    mock_time.utcnow.return_value = datetime.datetime(2018, 3, 31, hour=22)
+    body2 = github_api._insert_special_message(body)
+    assert '\n*All will be assimilated.*\n' in body2
