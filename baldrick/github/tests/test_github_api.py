@@ -50,7 +50,7 @@ class TestRepoHandler:
 class TestRealRepoHandler:
     def setup_class(self):
         # TODO: Use astropy/astropy-bot when #42 is merged.
-        self.repo = RepoHandler('pllim/astropy-bot', branch='changelog-onoff')
+        self.repo = RepoHandler('astropy/astropy-bot')
 
     def test_get_config(self):
         # These are set to False in YAML; defaults must not be used.
