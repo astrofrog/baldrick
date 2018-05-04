@@ -1,4 +1,5 @@
 import base64
+import os
 import warnings
 
 from unittest.mock import patch, Mock, PropertyMock, MagicMock
@@ -50,7 +51,7 @@ class TestRepoHandler:
 class TestRealRepoHandler:
     def setup_class(self):
         # TODO: Use astropy/astropy-bot when #42 is merged.
-        self.repo = RepoHandler('pllim/astropy-bot', branch='changelog-onoff')
+        self.repo = RepoHandler('astropy/astropy-bot')
 
     def test_get_config(self):
         # These are set to False in YAML; defaults must not be used.
@@ -62,11 +63,18 @@ class TestRealRepoHandler:
                 'autoclose_stale_pull_request', True)
 
         hit_api_limit = False
-        if len(w) > 0:
-            hit_api_limit = True
+        other_warns = []
+        for ww in w:
+            s = str(ww.message)
+            if 'API limit' in s:
+                hit_api_limit = True
+            else:
+                other_warns.append(s)
 
         if hit_api_limit:
-            pytest.xfail(str(w[-1].message))
+            pytest.xfail(s)
+        elif len(other_warns) > 0:
+            raise AssertionError(os.linesep.join(other_warns))
         else:
             assert not (do_changelog_check or do_autoclose_pr)
 
