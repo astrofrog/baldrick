@@ -6,7 +6,8 @@ import warnings
 from datetime import datetime, timedelta
 
 import dateutil.parser
-import yaml
+import toml
+from flask import current_app
 
 from changebot.github.github_auth import github_request_headers
 
@@ -108,7 +109,7 @@ class RepoHandler(object):
         contents_base64 = response.json()['content']
         return base64.b64decode(contents_base64).decode()
 
-    def get_user_config(self, path_to_file='.astropybot.yml',
+    def get_user_config(self, path_to_file='pyproject.toml',
                         warn_on_failure=True):
         """
         Load user configuration for bot.
@@ -131,13 +132,13 @@ class RepoHandler(object):
         # Allow non-existent file but raise error when cannot parse
         try:
             file_content = self.get_file_contents(path_to_file)
+            cfg = toml.loads(file_content)
+            cfg = cfg['tool'][current_app.bot_username]
         except Exception as e:
             if warn_on_failure:
                 warnings.warn(str(e))
             # Empty dict means calling code set the default
             cfg = {}
-        else:
-            cfg = yaml.load(file_content)
 
         return cfg
 
