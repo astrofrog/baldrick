@@ -10,13 +10,13 @@ matrix:
     include:
         - env: PYTHON_VERSION=3.6
                MAIN_CMD='pytest -rx --cov changebot changebot'
-               CONDA_DEPENDENCIES="pytest pytest-cov coverage requests flask cryptography python-dateutil yaml pyyaml"
+               CONDA_DEPENDENCIES="pytest pytest-cov coverage requests flask cryptography python-dateutil toml"
                PIP_DEPENDENCIES="coveralls flask-dance pygithub humanize"
 
         # Do a PEP8 test with flake8
         - env: PYTHON_VERSION=3.6
                MAIN_CMD='pytest --flake8 changebot'
-               CONDA_DEPENDENCIES="pytest requests flask cryptography python-dateutil yaml pyyaml"
+               CONDA_DEPENDENCIES="pytest requests flask cryptography python-dateutil toml"
                PIP_DEPENDENCIES="flask-dance pygithub humanize pytest-flake8"
 
 install:
