@@ -117,11 +117,11 @@ class RepoHandler(object):
         Parameters
         ----------
         path_to_file : str
-            Configuration file in YAML format in the repository.
-            If not given or invalid, default is used.
+            Path to the ``pyproject.toml`` file in the repository. Will default
+            to the root of the repository.
 
         warn_on_failure : bool
-            Emit warning on failure to load YAML file.
+            Emit warning on failure to load the pyproject file.
 
         Returns
         -------
