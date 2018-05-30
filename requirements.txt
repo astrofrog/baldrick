@@ -5,4 +5,4 @@ requests
 cryptography
 python-dateutil
 humanize
-pyyaml
+toml
