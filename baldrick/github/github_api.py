@@ -7,7 +7,6 @@ from datetime import datetime, timedelta
 
 import dateutil.parser
 import toml
-from flask import current_app
 
 from changebot.github.github_auth import github_request_headers
 
@@ -133,7 +132,7 @@ class RepoHandler(object):
         try:
             file_content = self.get_file_contents(path_to_file)
             cfg = toml.loads(file_content)
-            cfg = cfg['tool'][current_app.bot_username]
+            cfg = cfg['tool']['astropy-bot']
         except Exception as e:
             if warn_on_failure:
                 warnings.warn(str(e))

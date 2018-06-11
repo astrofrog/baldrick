@@ -50,7 +50,6 @@ class TestRepoHandler:
 # NOTE: Might hit API limit?
 class TestRealRepoHandler:
     def setup_class(self):
-        # TODO: Use astropy/astropy-bot when #42 is merged.
         self.repo = RepoHandler('astropy/astropy-bot')
 
     def test_get_config(self):
@@ -66,7 +65,7 @@ class TestRealRepoHandler:
         other_warns = []
         for ww in w:
             s = str(ww.message)
-            if 'API limit' in s:
+            if 'API rate limit' in s:
                 hit_api_limit = True
             else:
                 other_warns.append(s)
