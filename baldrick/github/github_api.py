@@ -308,15 +308,28 @@ class IssueHandler(object):
             comment_id = response.json()['url'].split('/')[-1]
             return f'{self._url_issue_nonapi}#issuecomment-{comment_id}'
 
-    def find_comments(self, login, filter_keep=None):
-        """
-        Find comments by a given user.
-        """
+    def _find_comments(self, login, filter_keep=None):
         if filter_keep is None:
             def filter_keep(message):
                 return True
         comments = paged_github_json_request(self._url_issue_comment, headers=self._headers)
-        return [comment['id'] for comment in comments if comment['user']['login'] == login and filter_keep(comment['body'])]
+        return [comment for comment in comments if filter_keep(comment['body'])]
+
+    def find_comments(self, login, filter_keep=None):
+        """
+        Find comments by a given user.
+        """
+        comments = self._find_comments(login, filter_keep=filter_keep)
+        return [comment['id'] for comment in comments if comment['user']['login'] == login]
+
+    def last_comment_date(self, login, filter_keep=None):
+        """
+        Find the last date on which a comment was made.
+        """
+        comments = self._find_comments(login, filter_keep=filter_keep)
+        dates = [comment['created_at'] for comment in comments if comment['user']['login'] == login]
+        if len(dates) > 0:
+            return dateutil.parser.parse(sorted(dates)[-1]).timestamp()
 
     @property
     def labels(self):
@@ -342,14 +355,18 @@ class IssueHandler(object):
         else:
             repo = self._cache['repohandler']
 
-        # If label does not already exist in the repo, fail (or create it?)
-        missing_labels = missing_labels.intersection(repo.get_all_labels())
-        if len(missing_labels) == 0:
+        # If label does not already exist in the repo, give a warning
+        repo_labels = repo.get_all_labels()
+        nonexistent_labels = missing_labels.difference(repo_labels)
+        if len(nonexistent_labels) > 0:
             print(f'-> WARNING: Label does not exist: {missing_labels}')
-            return
 
         # Return labels to be set
-        return list(missing_labels)
+        missing_labels = missing_labels.intersection(repo_labels)
+        if len(missing_labels) > 0:
+            return list(missing_labels)
+        else:
+            return None
 
     def set_labels(self, labels):
         """Set label(s) to issue"""
