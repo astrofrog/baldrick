@@ -32,6 +32,10 @@
   owner's ``.github`` repository, with settings in individual repositories
   overriding it.
 
+* Added an ``org_vetting`` plugin that closes pull requests opened by users who
+  are not members of the organization, with a configurable message explaining
+  how to get the pull request re-opened.
+
 * Always use GitHub default branch not hard coded ``master`` [#116]
 
 * Refresh package for Python 3.14 and fix some bugs with GitHub auth [#120]
