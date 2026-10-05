@@ -33,8 +33,8 @@
   overriding it.
 
 * Added an ``org_vetting`` plugin that closes pull requests opened by users who
-  are not members of the organization, with a configurable message explaining
-  how to get the pull request re-opened.
+  are not members of the organization or on an optional allowlist, with a
+  configurable message explaining how to get the pull request re-opened.
 
 * Always use GitHub default branch not hard coded ``master`` [#116]
 

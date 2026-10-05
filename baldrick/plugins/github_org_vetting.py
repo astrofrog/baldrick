@@ -1,8 +1,13 @@
+import os
 from datetime import UTC, datetime, timedelta
 
+import requests
+from cachetools import TTLCache
 from loguru import logger
 
 from baldrick.plugins.github_pull_requests import pull_request_handler
+
+ALLOWLIST_CACHE = TTLCache(maxsize=64, ttl=float(os.environ.get("BALDRICK_FILE_CACHE_TTL", 60)))
 
 DEFAULT_MESSAGE = """\
 This pull request has been closed automatically because the author is not a \
@@ -21,6 +26,37 @@ In addition, here are some statistics on the user's activity on GitHub:
 | Pull requests opened | {pr_day} | {pr_week} |
 | Issues opened        | {issue_day} | {issue_week} |
 """
+
+
+def load_allowlist(url):
+    """
+    The set of (lower-case) GitHub usernames listed at the given URL, one per
+    line, ignoring blank lines and lines starting with ``#``.
+
+    The result is cached for a short time. If the allowlist cannot be fetched,
+    a warning is logged and an empty set is returned, so that a broken URL does
+    not disable vetting.
+    """
+    try:
+        return ALLOWLIST_CACHE[url]
+    except KeyError:
+        pass
+
+    try:
+        response = requests.get(url, timeout=30)
+        response.raise_for_status()
+    except requests.RequestException:
+        logger.warning(f"Could not fetch the vetting allowlist from {url}, treating it as empty")
+        return set()
+
+    allowlist = set()
+    for line in response.text.splitlines():
+        line = line.strip()
+        if line and not line.startswith("#"):
+            allowlist.add(line.lstrip("@").lower())
+
+    ALLOWLIST_CACHE[url] = allowlist
+    return allowlist
 
 
 def previous_pull_requests_notes(pr_handler, repo_handler):
@@ -51,8 +87,8 @@ def activity_counts(pr_handler, repo_handler):
 def close_if_not_in_org(pr_handler, repo_handler):
 
     # When a PR is first opened, we check if the contributor is in the
-    # organization, and if not, we close the pull request and post a friendly
-    # message encouraging contributors to re-open
+    # organization or on the allowlist, and if not, we close the pull request
+    # and post a friendly message encouraging contributors to re-open
 
     vet_config = pr_handler.get_config_value("org_vetting", {})
     if not vet_config.get("enabled", False):
@@ -64,6 +100,12 @@ def close_if_not_in_org(pr_handler, repo_handler):
     if repo_handler.org_handler.is_member(pr_handler.user):
         logger.debug(f"Yes they are")
         return
+
+    if "allowlist" in vet_config:
+        logger.debug(f"Checking if {pr_handler.user} is on the allowlist")
+        if pr_handler.user.lower() in load_allowlist(vet_config["allowlist"]):
+            logger.debug("Yes they are")
+            return
 
     logger.debug(f"No they are not, posting comment")
 

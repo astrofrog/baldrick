@@ -121,8 +121,8 @@ Organization vetting
 ^^^^^^^^^^^^^^^^^^^^
 
 This pull request handler plugin closes pull requests opened by users who are
-not members of the organization that owns the repository, and posts a comment
-explaining why. To enable this plugin, include the following in your
+neither members of the organization that owns the repository nor on an optional
+allowlist, and posts a comment explaining why. To enable this plugin, include the following in your
 ``pyproject.toml`` file::
 
     [ tool.<your-bot-name>.org_vetting ]
@@ -132,6 +132,16 @@ The comment starts with the contributor-facing text given by the following
 configuration item, followed by notes for maintainers listing the author's
 previous pull requests to the repository and how many issues and pull requests
 they have opened GitHub-wide in the last day and week:
+
+* ``allowlist``: the URL of a plain text file listing GitHub usernames, one
+  per line (blank lines and lines starting with ``#`` are ignored), whose pull
+  requests should be left open even though they are not organization members.
+  For example, a file in the organization's ``.github`` repository::
+
+    allowlist = "https://raw.githubusercontent.com/<org>/.github/main/vetting-allowlist.txt"
+
+  If the file cannot be fetched, a warning is logged and the allowlist is
+  treated as empty.
 
 * ``message``: the Markdown text to show to the contributor, typically
   explaining how to get the pull request re-opened. If not set, a short generic

@@ -3,11 +3,12 @@
 # handlers are tested inside baldrick.
 
 from copy import copy
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
+import requests
 
-from baldrick.plugins.github_org_vetting import close_if_not_in_org
+from baldrick.plugins.github_org_vetting import ALLOWLIST_CACHE, close_if_not_in_org, load_allowlist
 from baldrick.plugins.github_pull_requests import PULL_REQUEST_CHECKS
 
 
@@ -110,3 +111,73 @@ def test_close_message_from_config():
     message = pr_handler.submit_comment.call_args[0][0]
     assert message.startswith("Hi {there}! Please join our Slack.\n\n### Notes for maintainers\n")
     assert "closed automatically" not in message
+
+
+ALLOWLIST = """
+# Contributors vetted by hand
+@Alice
+bob
+
+carol  # trailing comments are not supported, so this line is a different name
+"""
+
+
+class TestAllowlist:
+    def setup_method(self, method):
+        ALLOWLIST_CACHE.clear()
+
+    def make_response(self, text=ALLOWLIST, error=None):
+        response = MagicMock()
+        response.text = text
+        if error:
+            response.raise_for_status.side_effect = error
+        return response
+
+    @pytest.mark.parametrize(
+        ("user", "closed"), [("alice", False), ("ALICE", False), ("bob", False), ("carol", True), ("contributor", True)]
+    )
+    def test_allowlisted_users_are_not_closed(self, user, closed):
+        pr_handler, repo_handler = make_handlers([42], config={"allowlist": "https://example.org/allowlist.txt"})
+        pr_handler.user = user
+
+        with patch("baldrick.plugins.github_org_vetting.requests.get") as mock_get:
+            mock_get.return_value = self.make_response()
+            close_if_not_in_org(pr_handler, repo_handler)
+
+        mock_get.assert_called_once_with("https://example.org/allowlist.txt", timeout=30)
+        assert pr_handler.close.called is closed
+
+    def test_allowlist_is_cached(self):
+        pr_handler, repo_handler = make_handlers([42], config={"allowlist": "https://example.org/allowlist.txt"})
+        pr_handler.user = "alice"
+
+        with patch("baldrick.plugins.github_org_vetting.requests.get") as mock_get:
+            mock_get.return_value = self.make_response()
+            close_if_not_in_org(pr_handler, repo_handler)
+            close_if_not_in_org(pr_handler, repo_handler)
+
+        assert mock_get.call_count == 1
+        assert not pr_handler.close.called
+
+    def test_unreachable_allowlist_is_treated_as_empty(self):
+        pr_handler, repo_handler = make_handlers([42], config={"allowlist": "https://example.org/allowlist.txt"})
+        pr_handler.user = "alice"
+
+        with patch("baldrick.plugins.github_org_vetting.requests.get") as mock_get:
+            mock_get.return_value = self.make_response(error=requests.HTTPError("404"))
+            close_if_not_in_org(pr_handler, repo_handler)
+            assert pr_handler.close.called
+
+            # Failures are not cached, so the allowlist is tried again
+            assert load_allowlist("https://example.org/allowlist.txt") == set()
+            assert mock_get.call_count == 2
+
+    def test_no_allowlist_configured(self):
+        pr_handler, repo_handler = make_handlers([42])
+        pr_handler.user = "alice"
+
+        with patch("baldrick.plugins.github_org_vetting.requests.get") as mock_get:
+            close_if_not_in_org(pr_handler, repo_handler)
+
+        assert not mock_get.called
+        assert pr_handler.close.called
