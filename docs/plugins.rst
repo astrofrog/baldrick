@@ -117,6 +117,34 @@ the default behavior:
   ``skip_labels``, then a failed status check will be posted to the pull request.
   If ``false``, the checks will be silently skipped. The default is ``true``.
 
+Organization vetting
+^^^^^^^^^^^^^^^^^^^^
+
+This pull request handler plugin closes pull requests opened by users who are
+not members of the organization that owns the repository, and posts a comment
+explaining why. To enable this plugin, include the following in your
+``pyproject.toml`` file::
+
+    [ tool.<your-bot-name>.org_vetting ]
+    enabled = true
+
+The comment starts with the contributor-facing text given by the following
+configuration item, followed by notes for maintainers listing the author's
+previous pull requests to the repository and how many issues and pull requests
+they have opened GitHub-wide in the last day and week:
+
+* ``message``: the Markdown text to show to the contributor, typically
+  explaining how to get the pull request re-opened. If not set, a short generic
+  explanation is used. For example::
+
+    [ tool.<your-bot-name>.org_vetting ]
+    enabled = true
+    message = """
+    Thank you for your contribution! This pull request has been closed
+    automatically. To get it re-opened, please leave a comment explaining
+    how the change affects you.
+    """
+
 GitHub milestone checker
 ^^^^^^^^^^^^^^^^^^^^^^^^
 
