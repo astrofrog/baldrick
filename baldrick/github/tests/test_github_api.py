@@ -1,3 +1,4 @@
+from datetime import UTC, datetime
 from unittest.mock import MagicMock, Mock, PropertyMock, patch
 
 import pytest
@@ -24,6 +25,32 @@ class TestRepoHandler:
 
         assert self.repo.get_issues("open", "Close?") == [42]
         assert self.repo.get_issues("open", "Close?", exclude_pr=False) == [42, 55]
+
+    @patch("requests.get")
+    def test_get_pull_requests_by(self, mock_get):
+        mock_response = Mock()
+        mock_response.json.return_value = {"items": [{"number": 3}, {"number": 17}]}
+        mock_get.return_value = mock_response
+
+        assert self.repo.get_pull_requests_by("contributor") == [3, 17]
+
+        args = mock_get.call_args[0]
+        assert args[1]["q"] == "repo:fakerepo/doesnotexist type:pr author:contributor"
+        assert args[1]["order"] == "asc"
+
+    @patch("requests.get")
+    def test_count_opened_by(self, mock_get):
+        mock_response = Mock()
+        mock_response.json.return_value = {"total_count": 7, "items": [{"number": 3}]}
+        mock_get.return_value = mock_response
+
+        since = datetime(2026, 10, 4, 12, 30, 0, tzinfo=UTC)
+        assert self.repo.count_opened_by("contributor", "issue", since) == 7
+
+        args = mock_get.call_args[0]
+        assert args[0] == "https://api.github.com/search/issues"
+        assert args[1]["q"] == "author:contributor type:issue created:>=2026-10-04T12:30:00Z"
+        assert args[1]["per_page"] == 1
 
     @patch("requests.get")
     def test_get_all_labels(self, mock_get):

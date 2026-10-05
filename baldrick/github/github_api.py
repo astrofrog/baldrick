@@ -368,6 +368,36 @@ class RepoHandler(GitHubHandler):
         pull_requests = paged_github_json_request(self._url_pull_requests, headers=self._headers)
         return [pr["number"] for pr in pull_requests]
 
+    def get_pull_requests_by(self, user):
+        """
+        Get the numbers of pull requests opened by the given user, oldest first.
+        """
+        url = f"{HOST}/search/issues"
+        params = {"q": f"repo:{self.repo} type:pr author:{user}", "sort": "created", "order": "asc", "per_page": 100}
+        response = requests.get(url, params, headers=self._headers)
+        response.raise_for_status()
+        return [item["number"] for item in response.json()["items"]]
+
+    def count_opened_by(self, user, kind, since):
+        """
+        Count the issues or pull requests opened by the given user anywhere on
+        GitHub since the given time.
+
+        Parameters
+        ----------
+        user : str
+            The GitHub username.
+        kind : {'issue', 'pr'}
+            Whether to count issues or pull requests.
+        since : `datetime.datetime`
+            Only count issues or pull requests created at or after this time.
+        """
+        url = f"{HOST}/search/issues"
+        query = f"author:{user} type:{kind} created:>={since:%Y-%m-%dT%H:%M:%SZ}"
+        response = requests.get(url, {"q": query, "per_page": 1}, headers=self._headers)
+        response.raise_for_status()
+        return response.json()["total_count"]
+
     def get_issues(self, state, labels, exclude_pr=True):
         """
         Get a list of issues.
