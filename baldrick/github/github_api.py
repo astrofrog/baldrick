@@ -87,6 +87,29 @@ class GitHubHandler:
         response.raise_for_status()
         return response.json()["total_count"]
 
+    def merged_pull_requests_by(self, user, org):
+        """
+        The pull requests by the given user merged in any repository of the
+        given organization, most recently created first, as a list of dicts
+        with the ``repo`` (full name), ``number`` and ``html_url``.
+
+        Note that the search index can lag a little behind the API, so a
+        pull request merged a moment ago may not be included yet.
+        """
+        url = f"{HOST}/search/issues"
+        query = f"org:{org} type:pr is:merged author:{user}"
+        params = {"q": query, "sort": "created", "order": "desc", "per_page": 100}
+        response = requests.get(url, params, headers=self._headers)
+        response.raise_for_status()
+        return [
+            {
+                "repo": item["repository_url"].removeprefix(f"{HOST}/repos/"),
+                "number": item["number"],
+                "html_url": item["html_url"],
+            }
+            for item in response.json()["items"]
+        ]
+
 
 class OrgHandler(GitHubHandler):
     def __init__(self, org_name, installation=None):
@@ -397,6 +420,79 @@ class RepoHandler(GitHubHandler):
         response = requests.get(url, params, headers=self._headers)
         response.raise_for_status()
         return [item["number"] for item in response.json()["items"]]
+
+    def get_branch_sha(self, branch):
+        """
+        The SHA of the commit at the tip of a branch, or `None` if the branch
+        does not exist.
+        """
+        response = requests.get(f"{HOST}/repos/{self.repo}/git/ref/heads/{branch}", headers=self._headers)
+        if response.status_code == 404:
+            return None
+        response.raise_for_status()
+        return response.json()["object"]["sha"]
+
+    def create_branch(self, branch, sha):
+        """
+        Create a branch pointing at the given commit SHA.
+        """
+        url = f"{HOST}/repos/{self.repo}/git/refs"
+        response = requests.post(url, headers=self._headers, json={"ref": f"refs/heads/{branch}", "sha": sha})
+        response.raise_for_status()
+
+    def get_file(self, path_to_file, branch=None):
+        """
+        The contents and blob SHA of a file, as a ``(contents, sha)`` tuple.
+
+        Unlike `get_file_contents` this is not cached, since the SHA is
+        needed to update the file and must be current.
+        """
+        if branch is None:
+            branch = self.default_branch
+        url = self._url_contents + path_to_file
+        response = requests.get(url, params={"ref": branch}, headers=self._headers)
+        if not response.ok and response.json()["message"] == "Not Found":
+            raise FileNotFoundError(url)
+        response.raise_for_status()
+        contents = base64.b64decode(response.json()["content"]).decode()
+        return contents, response.json()["sha"]
+
+    def update_file(self, path_to_file, contents, message, branch, sha):
+        """
+        Commit new contents for an existing file to a branch.
+
+        Parameters
+        ----------
+        path_to_file : str
+            The path of the file in the repository.
+        contents : str
+            The new contents of the file.
+        message : str
+            The commit message.
+        branch : str
+            The branch to commit to.
+        sha : str
+            The current blob SHA of the file, as returned by `get_file`.
+        """
+        url = self._url_contents + path_to_file
+        payload = {
+            "message": message,
+            "content": base64.b64encode(contents.encode()).decode(),
+            "branch": branch,
+            "sha": sha,
+        }
+        response = requests.put(url, headers=self._headers, json=payload)
+        response.raise_for_status()
+
+    def create_pull_request(self, title, body, head, base):
+        """
+        Open a pull request from the ``head`` branch into the ``base`` branch
+        and return its number and URL as a ``(number, html_url)`` tuple.
+        """
+        payload = {"title": title, "body": body, "head": head, "base": base}
+        response = requests.post(self._url_pull_requests, headers=self._headers, json=payload)
+        response.raise_for_status()
+        return response.json()["number"], response.json()["html_url"]
 
     def get_issues(self, state, labels, exclude_pr=True):
         """

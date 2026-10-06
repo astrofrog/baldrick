@@ -1,3 +1,4 @@
+import base64
 from datetime import UTC, datetime
 from unittest.mock import MagicMock, Mock, PropertyMock, patch
 
@@ -60,6 +61,95 @@ class TestRepoHandler:
         assert args[0] == "https://api.github.com/search/issues"
         assert args[1]["q"] == "author:contributor type:issue created:>=2026-10-04T12:30:00Z"
         assert args[1]["per_page"] == 1
+
+    @patch("requests.get")
+    def test_merged_pull_requests_by(self, mock_get):
+        mock_response = Mock()
+        mock_response.json.return_value = {
+            "total_count": 2,
+            "items": [
+                {
+                    "number": 17,
+                    "repository_url": "https://api.github.com/repos/fakeorg/other",
+                    "html_url": "https://github.com/fakeorg/other/pull/17",
+                },
+                {
+                    "number": 3,
+                    "repository_url": "https://api.github.com/repos/fakeorg/doesnotexist",
+                    "html_url": "https://github.com/fakeorg/doesnotexist/pull/3",
+                },
+            ],
+        }
+        mock_get.return_value = mock_response
+
+        assert GitHubHandler().merged_pull_requests_by("contributor", "fakeorg") == [
+            {"repo": "fakeorg/other", "number": 17, "html_url": "https://github.com/fakeorg/other/pull/17"},
+            {"repo": "fakeorg/doesnotexist", "number": 3, "html_url": "https://github.com/fakeorg/doesnotexist/pull/3"},
+        ]
+        assert mock_get.call_args[0][1]["q"] == "org:fakeorg type:pr is:merged author:contributor"
+
+    @patch("requests.get")
+    def test_get_branch_sha(self, mock_get):
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"object": {"sha": "abc123"}}
+        mock_get.return_value = mock_response
+
+        assert self.repo.get_branch_sha("main") == "abc123"
+        assert mock_get.call_args[0][0] == "https://api.github.com/repos/fakerepo/doesnotexist/git/ref/heads/main"
+
+        mock_response.status_code = 404
+        assert self.repo.get_branch_sha("missing") is None
+
+    @patch("requests.post")
+    def test_create_branch(self, mock_post):
+        self.repo.create_branch("new-branch", "abc123")
+
+        assert mock_post.call_args[0][0] == "https://api.github.com/repos/fakerepo/doesnotexist/git/refs"
+        assert mock_post.call_args[1]["json"] == {"ref": "refs/heads/new-branch", "sha": "abc123"}
+
+    @patch("requests.get")
+    def test_get_file(self, mock_get):
+        mock_response = Mock()
+        mock_response.ok = True
+        mock_response.json.return_value = {"content": base64.b64encode(b"alice\nbob\n").decode(), "sha": "blob123"}
+        mock_get.return_value = mock_response
+
+        assert self.repo.get_file("allow.txt", branch="main") == ("alice\nbob\n", "blob123")
+        assert mock_get.call_args[0][0] == "https://api.github.com/repos/fakerepo/doesnotexist/contents/allow.txt"
+        assert mock_get.call_args[1]["params"] == {"ref": "main"}
+
+        mock_response.ok = False
+        mock_response.json.return_value = {"message": "Not Found"}
+        with pytest.raises(FileNotFoundError):
+            self.repo.get_file("missing.txt", branch="main")
+
+    @patch("requests.put")
+    def test_update_file(self, mock_put):
+        self.repo.update_file("allow.txt", "alice\nbob\ncarol\n", "Add carol", branch="new-branch", sha="blob123")
+
+        assert mock_put.call_args[0][0] == "https://api.github.com/repos/fakerepo/doesnotexist/contents/allow.txt"
+        payload = mock_put.call_args[1]["json"]
+        assert base64.b64decode(payload.pop("content")) == b"alice\nbob\ncarol\n"
+        assert payload == {"message": "Add carol", "branch": "new-branch", "sha": "blob123"}
+
+    @patch("requests.post")
+    def test_create_pull_request(self, mock_post):
+        mock_post.return_value.json.return_value = {
+            "number": 5,
+            "html_url": "https://github.com/fakerepo/doesnotexist/pull/5",
+        }
+
+        result = self.repo.create_pull_request("Add carol", "Body", head="new-branch", base="main")
+
+        assert result == (5, "https://github.com/fakerepo/doesnotexist/pull/5")
+        assert mock_post.call_args[0][0] == "https://api.github.com/repos/fakerepo/doesnotexist/pulls"
+        assert mock_post.call_args[1]["json"] == {
+            "title": "Add carol",
+            "body": "Body",
+            "head": "new-branch",
+            "base": "main",
+        }
 
     @patch("requests.get")
     def test_get_all_labels(self, mock_get):
