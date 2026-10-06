@@ -160,6 +160,15 @@ day and week. The configuration items are:
   If the file cannot be read, the status check is set to neutral and the pull
   request is left open.
 
+* ``add_to_allowlist_after``: if set to a number, then whenever a pull request
+  by a user who is neither an organization member nor on the allowlist is
+  merged, and that user has had at least this many pull requests merged across
+  the repositories of the organization, the bot opens a pull request in the
+  allowlist repository adding them to ``allowlist_file``. The pull request
+  lists the merged pull requests and pings the users who merged them. The
+  bot needs write access to contents and pull requests on the allowlist
+  repository for this. Not set by default.
+
 * ``maintainer_notes``: whether to append the notes for maintainers to the
   comment. The default is ``true``.
 

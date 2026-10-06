@@ -2,8 +2,15 @@ from datetime import UTC, datetime, timedelta
 
 from loguru import logger
 
-from baldrick.github.github_api import RepoHandler
+from baldrick.blueprints.github import github_webhook_handler
+from baldrick.github.github_api import PullRequestHandler, RepoHandler
 from baldrick.plugins.github_pull_requests import pull_request_handler
+
+# Branches created in the allowlist repository to propose additions
+PROPOSAL_BRANCH_PREFIX = "vetting-allowlist/"
+
+# At most this many merged pull requests are listed in a proposal
+PROPOSAL_MAX_LISTED = 10
 
 DEFAULT_MESSAGE = """\
 This pull request has been closed automatically because the author is not a \
@@ -200,3 +207,124 @@ def update_vetting_status(pr_handler, repo_handler):
     pull request that has been re-opened passes.
     """
     return vet_pull_request(pr_handler, repo_handler, close=False)
+
+
+def proposal_body(user, merged, mergers):
+    """
+    The body of a pull request proposing to add a user to the allowlist,
+    listing their merged pull requests and pinging those who merged them.
+    """
+    lines = [
+        f"@{user} has had {len(merged)} pull request{'s' if len(merged) != 1 else ''} merged, so this pull "
+        f"request adds them to the vetting allowlist so that their future pull requests are not closed "
+        f"automatically.",
+        "",
+        "Merged pull requests:",
+        "",
+    ]
+    lines += [f"* {pr['html_url']}" for pr in merged[:PROPOSAL_MAX_LISTED]]
+    if len(merged) > PROPOSAL_MAX_LISTED:
+        lines.append(f"* and {len(merged) - PROPOSAL_MAX_LISTED} more")
+    if mergers:
+        lines += ["", "cc " + " ".join(f"@{login}" for login in mergers) + " who merged the pull requests above"]
+    return "\n".join(lines)
+
+
+def merged_by(merged, pull_request, installation):
+    """
+    The logins of the users who merged the listed pull requests, in order of
+    first appearance and without duplicates. The payload of the pull request
+    that was just merged is used for that one, to avoid fetching it again.
+    """
+    mergers = []
+    for pr in merged[:PROPOSAL_MAX_LISTED]:
+        if pr["html_url"] == pull_request["html_url"]:
+            merger = pull_request.get("merged_by")
+        else:
+            merger = PullRequestHandler(pr["repo"], pr["number"], installation).json.get("merged_by")
+        if merger and merger["login"] not in mergers:
+            mergers.append(merger["login"])
+    return mergers
+
+
+@github_webhook_handler
+def propose_allowlist_addition(repo_handler, payload, headers):
+    """
+    When a pull request is merged, open a pull request adding its author to
+    the allowlist if they are not an organization member, not already on the
+    allowlist, and have had at least ``add_to_allowlist_after`` pull requests
+    merged in repositories of the organization.
+    """
+    if headers.get("X-GitHub-Event") != "pull_request" or payload.get("action") != "closed":
+        return
+    pull_request = payload["pull_request"]
+    if not pull_request.get("merged"):
+        return
+
+    vet_config = repo_handler.get_config_value("org_vetting", {})
+    threshold = vet_config.get("add_to_allowlist_after")
+    if not vet_config.get("enabled", False) or not threshold:
+        return
+
+    location = allowlist_location(repo_handler, vet_config)
+    if location is None:
+        logger.warning(
+            "add_to_allowlist_after is set but allowlist_file is not, so no allowlist additions can be proposed"
+        )
+        return
+
+    user = pull_request["user"]["login"]
+    if pull_request["user"].get("type") == "Bot":
+        return
+
+    if repo_handler.org_handler.is_member(user):
+        logger.debug(f"Not proposing to add {user} to the allowlist as they are a member of the org")
+        return
+
+    allowlist_repo_name, path = location
+    allowlist_repo = RepoHandler(allowlist_repo_name, installation=repo_handler.installation)
+
+    # Read the allowlist directly rather than through the cache, so that an
+    # addition merged a moment ago is seen
+    contents, sha = allowlist_repo.get_file(path)
+    if user.lower() in parse_allowlist(contents):
+        logger.debug(f"Not proposing to add {user} to the allowlist as they are already on it")
+        return
+
+    owner = repo_handler.repo.split("/")[0]
+    merged = repo_handler.merged_pull_requests_by(user, owner)
+    if not any(pr["html_url"] == pull_request["html_url"] for pr in merged):
+        # The search index has not caught up with the merge that triggered us
+        merged.insert(
+            0, {"repo": repo_handler.repo, "number": pull_request["number"], "html_url": pull_request["html_url"]}
+        )
+
+    if len(merged) < threshold:
+        logger.debug(
+            f"Not proposing to add {user} to the allowlist as they have {len(merged)} merged pull request(s), fewer than {threshold}"
+        )
+        return
+
+    branch = PROPOSAL_BRANCH_PREFIX + user
+    if allowlist_repo.get_branch_sha(branch) is not None:
+        logger.debug(
+            f"Not proposing to add {user} to the allowlist as branch {branch} already exists in {allowlist_repo_name}"
+        )
+        return
+
+    logger.info(
+        f"Proposing to add {user} to the allowlist in {allowlist_repo_name} after {len(merged)} merged pull requests"
+    )
+
+    base = allowlist_repo.default_branch
+    allowlist_repo.create_branch(branch, allowlist_repo.get_branch_sha(base))
+    allowlist_repo.update_file(
+        path, contents.rstrip("\n") + f"\n{user}\n", f"Add {user} to the vetting allowlist", branch=branch, sha=sha
+    )
+    _, html_url = allowlist_repo.create_pull_request(
+        f"Add @{user} to the vetting allowlist",
+        proposal_body(user, merged, merged_by(merged, pull_request, repo_handler.installation)),
+        head=branch,
+        base=base,
+    )
+    logger.info(f"Opened {html_url} to add {user} to the allowlist")

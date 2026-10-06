@@ -37,7 +37,8 @@
   the organization's ``.github`` repository by default), with a configurable
   message explaining how to get the pull request re-opened. The outcome is
   reported as a status check, which passes for pull requests that have been
-  re-opened.
+  re-opened. Optionally, once a contributor has had a given number of pull
+  requests merged, the bot opens a pull request adding them to the allowlist.
 
 * Pull request handlers are now also run for the ``reopened`` action.
 

@@ -7,10 +7,12 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from baldrick.blueprints.github import GITHUB_WEBHOOK_HANDLERS
 from baldrick.plugins.github_org_vetting import (
     allowlist_location,
     close_if_not_in_org,
     parse_allowlist,
+    propose_allowlist_addition,
     update_vetting_status,
 )
 from baldrick.plugins.github_pull_requests import PULL_REQUEST_CHECKS
@@ -32,11 +34,14 @@ def setup_module(module):
     for handler in (close_if_not_in_org, update_vetting_status):
         module.PULL_REQUEST_CHECKS_ORIG.pop(handler, None)
         PULL_REQUEST_CHECKS.pop(handler, None)
+    module.GITHUB_WEBHOOK_HANDLERS_ORIG = [h for h in GITHUB_WEBHOOK_HANDLERS if h is not propose_allowlist_addition]
+    GITHUB_WEBHOOK_HANDLERS[:] = module.GITHUB_WEBHOOK_HANDLERS_ORIG
 
 
 def teardown_module(module):
     PULL_REQUEST_CHECKS.clear()
     PULL_REQUEST_CHECKS.update(module.PULL_REQUEST_CHECKS_ORIG)
+    GITHUB_WEBHOOK_HANDLERS[:] = module.GITHUB_WEBHOOK_HANDLERS_ORIG
 
 
 def make_handlers(previous_prs=(42,), counts=(0, 0, 0, 0), config=None, is_member=False, reopened_by=None):
@@ -288,3 +293,170 @@ def test_membership_error_gives_neutral_check_and_leaves_pr_open():
     assert result["org_vetting"]["conclusion"] == "neutral"
     assert "Exception: GitHub is down" in result["org_vetting"]["summary"]
     assert not pr_handler.close.called
+
+
+class TestProposeAllowlistAddition:
+    HEADERS = {"X-GitHub-Event": "pull_request"}
+
+    def make_payload(self, action="closed", merged=True, user="contributor", user_type="User", merged_by="maintainer"):
+        return {
+            "action": action,
+            "pull_request": {
+                "number": 42,
+                "html_url": "https://github.com/fakeorg/fakerepo/pull/42",
+                "merged": merged,
+                "user": {"login": user, "type": user_type},
+                "merged_by": {"login": merged_by} if merged_by else None,
+            },
+        }
+
+    def make_repo_handler(self, config=None, is_member=False, merged=()):
+        repo_handler = MagicMock()
+        repo_handler.repo = "fakeorg/fakerepo"
+        repo_handler.installation = 1234
+        repo_handler.get_config_value.return_value = {"enabled": True, "allowlist_file": "allow.txt", **(config or {})}
+        repo_handler.org_handler.is_member.return_value = is_member
+        repo_handler.merged_pull_requests_by.return_value = [dict(pr) for pr in merged]
+        return repo_handler
+
+    def patch_repos(self, contents="alice\nbob\n", branch_exists=False, merged_by_others="other-maintainer"):
+        allowlist_repo = MagicMock()
+        allowlist_repo.get_file.return_value = (contents, "blob123")
+        allowlist_repo.default_branch = "main"
+        allowlist_repo.get_branch_sha.side_effect = lambda branch: (
+            "base123" if branch == "main" else ("head456" if branch_exists else None)
+        )
+        allowlist_repo.create_pull_request.return_value = (7, "https://github.com/fakeorg/.github/pull/7")
+        other_pr = MagicMock()
+        other_pr.json = {"merged_by": {"login": merged_by_others} if merged_by_others else None}
+        return (
+            patch("baldrick.plugins.github_org_vetting.RepoHandler", return_value=allowlist_repo),
+            patch("baldrick.plugins.github_org_vetting.PullRequestHandler", return_value=other_pr),
+            allowlist_repo,
+        )
+
+    MERGED_EARLIER = {"repo": "fakeorg/other", "number": 3, "html_url": "https://github.com/fakeorg/other/pull/3"}
+    MERGED_NOW = {"repo": "fakeorg/fakerepo", "number": 42, "html_url": "https://github.com/fakeorg/fakerepo/pull/42"}
+
+    def run(self, payload=None, config=None, is_member=False, merged=(), **patch_kwargs):
+        repo_handler = self.make_repo_handler(
+            config={"add_to_allowlist_after": 2, **(config or {})}, is_member=is_member, merged=merged
+        )
+        patch_repo, patch_pr, allowlist_repo = self.patch_repos(**patch_kwargs)
+        with patch_repo as mock_repo_handler, patch_pr:
+            propose_allowlist_addition(repo_handler, payload or self.make_payload(), self.HEADERS)
+        return repo_handler, mock_repo_handler, allowlist_repo
+
+    def test_proposal_opened(self):
+        repo_handler, mock_repo_handler, allowlist_repo = self.run(merged=[self.MERGED_NOW, self.MERGED_EARLIER])
+
+        mock_repo_handler.assert_called_once_with("fakeorg/.github", installation=1234)
+        repo_handler.merged_pull_requests_by.assert_called_once_with("contributor", "fakeorg")
+        allowlist_repo.get_file.assert_called_once_with("allow.txt")
+        allowlist_repo.create_branch.assert_called_once_with("vetting-allowlist/contributor", "base123")
+        allowlist_repo.update_file.assert_called_once_with(
+            "allow.txt",
+            "alice\nbob\ncontributor\n",
+            "Add contributor to the vetting allowlist",
+            branch="vetting-allowlist/contributor",
+            sha="blob123",
+        )
+        title, body = allowlist_repo.create_pull_request.call_args.args
+        assert allowlist_repo.create_pull_request.call_args.kwargs == {
+            "head": "vetting-allowlist/contributor",
+            "base": "main",
+        }
+        assert title == "Add @contributor to the vetting allowlist"
+        assert body == (
+            "@contributor has had 2 pull requests merged, so this pull request adds them to the vetting allowlist "
+            "so that their future pull requests are not closed automatically.\n"
+            "\n"
+            "Merged pull requests:\n"
+            "\n"
+            "* https://github.com/fakeorg/fakerepo/pull/42\n"
+            "* https://github.com/fakeorg/other/pull/3\n"
+            "\n"
+            "cc @maintainer @other-maintainer who merged the pull requests above"
+        )
+
+    def test_just_merged_pull_request_counted_when_search_lags(self):
+        # The search only returns the earlier pull request, but the one that
+        # triggered the event counts too, so the threshold of 2 is reached
+        _, _, allowlist_repo = self.run(merged=[self.MERGED_EARLIER])
+
+        assert allowlist_repo.create_pull_request.called
+        body = allowlist_repo.create_pull_request.call_args.args[1]
+        assert body.index("fakerepo/pull/42") < body.index("other/pull/3")
+
+    def test_mergers_deduplicated(self):
+        _, _, allowlist_repo = self.run(merged=[self.MERGED_NOW, self.MERGED_EARLIER], merged_by_others="maintainer")
+
+        body = allowlist_repo.create_pull_request.call_args.args[1]
+        assert body.endswith("cc @maintainer who merged the pull requests above")
+
+    def test_below_threshold(self):
+        _, _, allowlist_repo = self.run(merged=[self.MERGED_NOW])
+
+        assert not allowlist_repo.create_branch.called
+        assert not allowlist_repo.create_pull_request.called
+
+    def test_already_proposed(self):
+        _, _, allowlist_repo = self.run(merged=[self.MERGED_NOW, self.MERGED_EARLIER], branch_exists=True)
+
+        assert not allowlist_repo.create_branch.called
+        assert not allowlist_repo.create_pull_request.called
+
+    def test_already_on_allowlist(self):
+        repo_handler, _, allowlist_repo = self.run(
+            merged=[self.MERGED_NOW, self.MERGED_EARLIER], contents="Contributor\n"
+        )
+
+        assert not repo_handler.merged_pull_requests_by.called
+        assert not allowlist_repo.create_pull_request.called
+
+    def test_org_member(self):
+        repo_handler, mock_repo_handler, _ = self.run(is_member=True, merged=[self.MERGED_NOW, self.MERGED_EARLIER])
+
+        assert not mock_repo_handler.called
+        assert not repo_handler.merged_pull_requests_by.called
+
+    def test_bot_author(self):
+        _, mock_repo_handler, _ = self.run(payload=self.make_payload(user="dependabot[bot]", user_type="Bot"))
+
+        assert not mock_repo_handler.called
+
+    @pytest.mark.parametrize("payload", [{"action": "opened"}, {"action": "closed", "merged": False}])
+    def test_ignores_other_events(self, payload):
+        repo_handler, mock_repo_handler, _ = self.run(
+            payload=self.make_payload(**payload), merged=[self.MERGED_NOW, self.MERGED_EARLIER]
+        )
+
+        assert not repo_handler.get_config_value.called
+        assert not mock_repo_handler.called
+
+    def test_ignores_other_event_types(self):
+        repo_handler = self.make_repo_handler(config={"add_to_allowlist_after": 2})
+
+        propose_allowlist_addition(repo_handler, {"action": "closed"}, {"X-GitHub-Event": "issues"})
+
+        assert not repo_handler.get_config_value.called
+
+    def test_disabled_without_threshold(self):
+        repo_handler = self.make_repo_handler()
+        patch_repo, patch_pr, _ = self.patch_repos()
+
+        with patch_repo as mock_repo_handler, patch_pr:
+            propose_allowlist_addition(repo_handler, self.make_payload(), self.HEADERS)
+
+        assert not mock_repo_handler.called
+
+    def test_warns_without_allowlist_file(self, caplog):
+        repo_handler = self.make_repo_handler(config={"add_to_allowlist_after": 2})
+        repo_handler.get_config_value.return_value = {"enabled": True, "add_to_allowlist_after": 2}
+        patch_repo, patch_pr, _ = self.patch_repos()
+
+        with patch_repo as mock_repo_handler, patch_pr:
+            propose_allowlist_addition(repo_handler, self.make_payload(), self.HEADERS)
+
+        assert not mock_repo_handler.called
+        assert "allowlist_file is not" in caplog.text
