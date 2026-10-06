@@ -33,10 +33,11 @@
   overriding it.
 
 * Added an ``org_vetting`` plugin that closes pull requests opened by users who
-  are not members of the organization or on an optional allowlist, with a
-  configurable message explaining how to get the pull request re-opened. The
-  outcome is reported as a status check, which passes for pull requests that
-  have been re-opened.
+  are not members of the organization or on an optional allowlist (a file in
+  the organization's ``.github`` repository by default), with a configurable
+  message explaining how to get the pull request re-opened. The outcome is
+  reported as a status check, which passes for pull requests that have been
+  re-opened.
 
 * Pull request handlers are now also run for the ``reopened`` action.
 

@@ -6,17 +6,14 @@ from copy import copy
 from unittest.mock import MagicMock, patch
 
 import pytest
-import requests
 
 from baldrick.plugins.github_org_vetting import (
-    ALLOWLIST_CACHE,
+    allowlist_location,
     close_if_not_in_org,
-    load_allowlist,
+    parse_allowlist,
     update_vetting_status,
 )
 from baldrick.plugins.github_pull_requests import PULL_REQUEST_CHECKS
-
-ALLOWLIST_URL = "https://example.org/allowlist.txt"
 
 ALLOWLIST = """
 # Contributors vetted by hand
@@ -42,11 +39,6 @@ def teardown_module(module):
     PULL_REQUEST_CHECKS.update(module.PULL_REQUEST_CHECKS_ORIG)
 
 
-@pytest.fixture(autouse=True)
-def clear_allowlist_cache():
-    ALLOWLIST_CACHE.clear()
-
-
 def make_handlers(previous_prs=(42,), counts=(0, 0, 0, 0), config=None, is_member=False, reopened_by=None):
     pr_handler = MagicMock()
     pr_handler.user = "contributor"
@@ -55,6 +47,8 @@ def make_handlers(previous_prs=(42,), counts=(0, 0, 0, 0), config=None, is_membe
     pr_handler.get_config_value.return_value = {"enabled": True, **(config or {})}
 
     repo_handler = MagicMock()
+    repo_handler.repo = "fakeorg/fakerepo"
+    repo_handler.installation = 1234
     repo_handler.org_handler.is_member.return_value = is_member
     repo_handler.get_pull_requests_by.return_value = list(previous_prs)
     repo_handler.count_opened_by.side_effect = list(counts)
@@ -62,12 +56,17 @@ def make_handlers(previous_prs=(42,), counts=(0, 0, 0, 0), config=None, is_membe
     return pr_handler, repo_handler
 
 
-def allowlist_response(text=ALLOWLIST, error=None):
-    response = MagicMock()
-    response.text = text
+def patch_allowlist_repo(contents=ALLOWLIST, error=None):
+    """
+    Patch the RepoHandler used to read the allowlist file, returning the
+    mocked class so that tests can check which repository and file were read.
+    """
+    allowlist_repo = MagicMock()
     if error:
-        response.raise_for_status.side_effect = error
-    return response
+        allowlist_repo.get_file_contents.side_effect = error
+    else:
+        allowlist_repo.get_file_contents.return_value = contents
+    return patch("baldrick.plugins.github_org_vetting.RepoHandler", return_value=allowlist_repo)
 
 
 def assert_running_check_posted(pr_handler):
@@ -214,61 +213,69 @@ def test_close_message_from_config():
 
 
 class TestAllowlist:
+    def test_parse_allowlist(self):
+        assert parse_allowlist(ALLOWLIST) == {
+            "alice",
+            "bob",
+            "carol  # trailing comments are not supported, so this line is a different name",
+        }
+
+    def test_location_defaults_to_dot_github_repo(self):
+        _, repo_handler = make_handlers()
+        assert allowlist_location(repo_handler, {}) is None
+        assert allowlist_location(repo_handler, {"allowlist_file": "allow.txt"}) == ("fakeorg/.github", "allow.txt")
+        assert allowlist_location(repo_handler, {"allowlist_file": "allow.txt", "allowlist_repo": "other/repo"}) == (
+            "other/repo",
+            "allow.txt",
+        )
+
     @pytest.mark.parametrize(
         ("user", "closed"), [("alice", False), ("ALICE", False), ("bob", False), ("carol", True), ("contributor", True)]
     )
     def test_allowlisted_users_are_not_closed(self, user, closed):
-        pr_handler, repo_handler = make_handlers(config={"allowlist": ALLOWLIST_URL})
+        pr_handler, repo_handler = make_handlers(config={"allowlist_file": "allow.txt"})
         pr_handler.user = user
 
-        with patch("baldrick.plugins.github_org_vetting.requests.get") as mock_get:
-            mock_get.return_value = allowlist_response()
+        with patch_allowlist_repo() as mock_repo_handler:
             result = close_if_not_in_org(pr_handler, repo_handler)
 
-        mock_get.assert_called_once_with(ALLOWLIST_URL, timeout=30)
+        mock_repo_handler.assert_called_once_with("fakeorg/.github", installation=1234)
+        mock_repo_handler.return_value.get_file_contents.assert_called_once_with("allow.txt")
         assert pr_handler.close.called is closed
         assert result["org_vetting"]["conclusion"] == ("failure" if closed else "success")
         if not closed:
             assert result["org_vetting"]["title"] == "Author is on the allowlist"
 
-    def test_allowlist_is_cached(self):
-        with patch("baldrick.plugins.github_org_vetting.requests.get") as mock_get:
-            mock_get.return_value = allowlist_response()
-            assert load_allowlist(ALLOWLIST_URL) == {
-                "alice",
-                "bob",
-                "carol  # trailing comments are not supported, so this line is a different name",
-            }
-            assert load_allowlist(ALLOWLIST_URL) == load_allowlist(ALLOWLIST_URL)
+    def test_allowlist_in_other_repository(self):
+        pr_handler, repo_handler = make_handlers(config={"allowlist_file": "allow.txt", "allowlist_repo": "other/repo"})
+        pr_handler.user = "alice"
 
-        assert mock_get.call_count == 1
-
-    def test_unreachable_allowlist_gives_neutral_check_and_leaves_pr_open(self):
-        pr_handler, repo_handler = make_handlers(config={"allowlist": ALLOWLIST_URL})
-
-        with patch("baldrick.plugins.github_org_vetting.requests.get") as mock_get:
-            mock_get.return_value = allowlist_response(error=requests.HTTPError("404 Client Error"))
+        with patch_allowlist_repo() as mock_repo_handler:
             result = close_if_not_in_org(pr_handler, repo_handler)
 
-            # Failures are not cached, so the allowlist is tried again
-            with pytest.raises(requests.HTTPError):
-                load_allowlist(ALLOWLIST_URL)
-            assert mock_get.call_count == 2
+        mock_repo_handler.assert_called_once_with("other/repo", installation=1234)
+        assert result["org_vetting"]["conclusion"] == "success"
+
+    def test_unreadable_allowlist_gives_neutral_check_and_leaves_pr_open(self):
+        pr_handler, repo_handler = make_handlers(config={"allowlist_file": "allow.txt"})
+
+        with patch_allowlist_repo(error=FileNotFoundError("allow.txt")):
+            result = close_if_not_in_org(pr_handler, repo_handler)
 
         assert_running_check_posted(pr_handler)
         assert result["org_vetting"]["conclusion"] == "neutral"
         assert result["org_vetting"]["title"] == "Could not vet the author of this pull request"
-        assert "HTTPError: 404 Client Error" in result["org_vetting"]["summary"]
+        assert "FileNotFoundError: allow.txt" in result["org_vetting"]["summary"]
         assert not pr_handler.submit_comment.called
         assert not pr_handler.close.called
 
     def test_no_allowlist_configured(self):
         pr_handler, repo_handler = make_handlers()
 
-        with patch("baldrick.plugins.github_org_vetting.requests.get") as mock_get:
+        with patch_allowlist_repo() as mock_repo_handler:
             close_if_not_in_org(pr_handler, repo_handler)
 
-        assert not mock_get.called
+        assert not mock_repo_handler.called
         assert pr_handler.close.called
 
 

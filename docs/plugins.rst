@@ -148,15 +148,17 @@ for maintainers listing the author's previous pull requests to the repository
 and how many issues and pull requests they have opened GitHub-wide in the last
 day and week. The configuration items are:
 
-* ``allowlist``: the URL of a plain text file listing GitHub usernames, one
-  per line (blank lines and lines starting with ``#`` are ignored), whose pull
-  requests should be left open even though they are not organization members.
-  For example, a file in the organization's ``.github`` repository::
+* ``allowlist_file``: the path of a plain text file listing GitHub usernames,
+  one per line (blank lines and lines starting with ``#`` are ignored), whose
+  pull requests should be left open even though they are not organization
+  members. The file is read from the default branch of the repository given
+  by ``allowlist_repo``, which defaults to the organization's ``.github``
+  repository (the bot needs to be installed on that repository)::
 
-    allowlist = "https://raw.githubusercontent.com/<org>/.github/main/vetting-allowlist.txt"
+    allowlist_file = "vetting-allowlist.txt"
 
-  If the file cannot be fetched, a warning is logged and the allowlist is
-  treated as empty.
+  If the file cannot be read, the status check is set to neutral and the pull
+  request is left open.
 
 * ``maintainer_notes``: whether to append the notes for maintainers to the
   comment. The default is ``true``.
